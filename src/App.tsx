@@ -5,6 +5,7 @@ import type { InvestigationRecord, InvestigationStep, ModuleId, Phase, StepArea,
 
 import { CASE_ID, CASE_NAV, SYSTEM_NAV, useNavigation } from './lib/navigation'
 import type { CaseView } from './lib/navigation'
+import { useTheme } from './lib/theme'
 type DetailTab = 'action' | 'legal' | 'sources'
 
 
@@ -103,6 +104,7 @@ function WarningList({ warnings, reviewed, onToggle }: { warnings: string[]; rev
 }
 
 export default function App() {
+  const { theme, toggleTheme } = useTheme()
   const [record, setRecord] = useState<InvestigationRecord | null>(null)
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
@@ -178,13 +180,22 @@ export default function App() {
   const openNow = caseSteps.filter((step) => step.phase === 'now' && step.triage === 'MUST_DO' && !progress[step.id]?.done).length
 
   return <div className="app-shell">
-    <aside className="sidebar"><div className="brand"><div className="brand-mark">V</div><div><strong>Vivechna Sahayak</strong><small>Investigation management</small></div></div><p className="sidebar-label">SYSTEM</p><nav aria-label="System navigation">{SYSTEM_NAV.map((item) => <button key={item.id} className={activeSystemView === item.id ? 'active' : ''} aria-current={activeSystemView === item.id ? 'page' : undefined} type="button" onClick={() => go({ scope: 'system', view: item.id })}><span className="nav-icon" aria-hidden="true">{item.icon}</span>{item.label}</button>)}</nav><div className="sidebar-bottom"><span className="status-dot" />{isDemoMode ? 'Demo session · changes reset on refresh' : 'Connected to case service'}</div></aside>
+    <header className="system-header">
+      <div className="system-header-inner">
+        <button type="button" className="brand" aria-label="Vivechna Sahayak dashboard" onClick={() => go({ scope: 'system', view: 'dashboard' })}><span className="brand-mark" aria-hidden="true">V</span><strong>Vivechna Sahayak</strong></button>
+        <nav className="system-nav" aria-label="System navigation">{SYSTEM_NAV.map((item) => <button key={item.id} className={activeSystemView === item.id ? 'active' : ''} aria-current={activeSystemView === item.id ? 'page' : undefined} type="button" onClick={() => go({ scope: 'system', view: item.id })}>{item.label}</button>)}</nav>
+        <button type="button" className="theme-toggle" aria-label="Dark mode" aria-pressed={theme === 'dark'} title={theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode'} onClick={toggleTheme}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{theme === 'dark' ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></> : <path d="M20.9 13a8.5 8.5 0 0 1-9.9-9.9A8.5 8.5 0 1 0 20.9 13Z" />}</svg>
+          <span>Dark mode</span><span className="theme-switch" aria-hidden="true"><i /></span>
+        </button>
+      </div>
+    </header>
 
-    <div className="main-shell"><header className="mobile-header"><div className="brand-mark">V</div><strong>Vivechna Sahayak</strong><span>{isDemoMode ? 'DEMO' : 'LIVE'}</span></header><main className="page">
+    <div className="main-shell"><main className="page">
       <div className="navigation-bar">{(view || canGoBack) && <button type="button" className="back-button" onClick={back}><span aria-hidden="true">←</span> Back to {backLabel}</button>}{view && <nav className="breadcrumbs" aria-label="Breadcrumb"><button type="button" onClick={() => go({ scope: 'system', view: 'cases' })}>Cases</button><span aria-hidden="true">/</span><button type="button" onClick={() => navigate('overview')}>FIR {data.fir.fir_number}</button><span aria-hidden="true">/</span><span aria-current="page">{CASE_NAV.find((item) => item.id === view)?.label}</span></nav>}</div>
       {view && <div className="case-workspace"><section className="case-header"><div className="case-main"><span className="section-label">CURRENT CASE</span><div className="case-title-line"><h2>FIR {data.fir.fir_number}</h2><div className="section-chips">{data.fir.sections_stated.map((section) => <span key={section}>{section}</span>)}</div></div><p>{data.fir.police_station} · {firField('District')} · Registered {firField('Date & time FIR registered')}</p></div><div className="case-actions"><button type="button" className="outline-button" onClick={() => go({ scope: 'system', view: 'cases' })}>← Back to cases</button></div></section><nav className="case-nav" aria-label="Case navigation">{CASE_NAV.map((item) => <button type="button" key={item.id} aria-label={item.label} className={view === item.id ? 'selected' : ''} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}{item.id === 'special' && modules.length > 0 && <span>{modules.length}</span>}</button>)}</nav></div>}
-      <div className="page-heading"><div><p className="eyebrow">{view ? 'CASE WORKSPACE' : 'VIVECHNA SAHAYAK / SYSTEM'}</p><h1 ref={pageTitle} tabIndex={-1}>{title}</h1><p className="heading-subtitle">{subtitle}</p></div><div className="top-status"><span className="status-dot" />{isDemoMode ? 'Demo mode' : 'Connected'}</div></div>
-      {isDemoMode && <div className="demo-banner"><strong>Demo workspace.</strong> The available case is shown exactly as imported from the linked page. Task changes and procedure selections remain in this browser session and reset on refresh. <span>Use the cited sources and paper FIR for verification.</span></div>}
+      <div className="page-heading"><div>{view && <p className="eyebrow">CASE WORKSPACE</p>}<h1 ref={pageTitle} tabIndex={-1}>{title}</h1><p className="heading-subtitle">{subtitle}</p></div><div className="top-status"><span className="status-dot" />{isDemoMode ? 'Demo mode' : 'Connected'}</div></div>
+      {isDemoMode && <div className="demo-banner"><div><strong>Demo workspace</strong><span> · Changes reset on refresh.</span></div><details><summary>About this demo</summary><p>The available case is shown exactly as imported from the linked page. Task changes and procedure selections remain in this browser session and reset on refresh. Use the cited sources and paper FIR for verification.</p></details></div>}
       {saveError && <div className="error-banner" role="alert"><strong>Change was not saved.</strong> {saveError}<button type="button" onClick={() => setSaveError('')}>Dismiss</button></div>}
 
       {!view && <p className="dataset-note">{isDemoMode ? 'Demo data: one imported case is available.' : 'One case is available through the current case adapter.'}</p>}
@@ -223,6 +234,5 @@ export default function App() {
       {view === 'fir' && <><section className="section-block first-block"><div className="section-heading"><div><span className="section-label">RECORD QUALITY</span><h2>Check before relying on this record</h2></div><span className="result-count">{warnings.length - reviewedWarnings.size} open</span></div><WarningList warnings={warnings} reviewed={reviewedWarnings} onToggle={(index) => setReviewedWarnings((old) => { const next = new Set(old); if (next.has(index)) next.delete(index); else next.add(index); return next })} /><p className="section-hint">“Mark checked” is a local review marker. It does not alter or correct the FIR.</p></section><section className="section-block"><div className="section-heading"><div><span className="section-label">STRUCTURED FIR</span><h2>Case details</h2></div></div><div className="fir-grid">{data.fir.fields.map((field, index) => <div className="fir-field" key={`${field.k}-${index}`}><span>{field.k}</span><strong>{field.v}</strong></div>)}</div></section><section className="section-block"><div className="section-heading"><div><span className="section-label">CASE NARRATIVE</span><h2>What the FIR states</h2></div></div><div className="panel narrative-panel"><p>{data.fir.narrative_summary}</p><details><summary>Read original FIR text</summary><pre>{data.fir_text}</pre></details></div></section></>}
       {view && <div className="case-return"><button type="button" className="back-button" onClick={back}>← Back to {backLabel}</button><button type="button" className="text-button" onClick={() => go({ scope: 'system', view: 'cases' })}>Back to cases →</button></div>}
     </main><footer className="page-footer"><span>Vivechna Sahayak · {isDemoMode ? 'Local prototype' : 'Connected workspace'}</span><span>Source citations and case facts should be verified before operational use.</span></footer></div>
-    <nav className="mobile-nav" aria-label="Mobile system navigation">{SYSTEM_NAV.map((item) => <button type="button" key={item.id} className={activeSystemView === item.id ? 'active' : ''} aria-current={activeSystemView === item.id ? 'page' : undefined} onClick={() => go({ scope: 'system', view: item.id })}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}</nav>
   </div>
 }

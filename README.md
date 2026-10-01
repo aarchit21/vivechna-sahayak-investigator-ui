@@ -27,7 +27,7 @@ Use `pnpm build` for a production bundle and `pnpm test` for the data and adapte
 
 ## What to review
 
-System navigation stays in the sidebar (or the mobile bottom bar): Dashboard, Cases, Work Queue, Search, and Reports. The demo contains one case. Opening it displays the current FIR and case tabs in the main area, with breadcrumbs and a return to the case list. The on-screen Back controls and browser Back/Forward return to previous views; hash URLs preserve the selected page on refresh. Queue and library searches remain separate and stay in memory when moving between pages.
+System navigation stays in the top bar on desktop and mobile: Dashboard, Cases, Work Queue, Search, and Reports. The demo contains one case. Opening it displays the current FIR and case tabs in the main area, with breadcrumbs and a return to the case list. The on-screen Back controls and browser Back/Forward return to previous views; hash URLs preserve the selected page on refresh. Queue and library searches remain separate and stay in memory when moving between pages. The top bar includes a dark mode toggle. The first visit follows the browser’s light/dark preference; an explicit choice is remembered on this device. Case progress still resets on refresh.
 
 - **Overview:** compact case context, record warnings, progress, and immediate actions.
 - **Work queue:** phase, priority, search, grouped tasks, checklist, legal basis, and sources.
