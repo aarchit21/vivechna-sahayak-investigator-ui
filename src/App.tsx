@@ -3,9 +3,11 @@ import { adapter, isDemoMode } from './lib/backend'
 import { activeSteps, areaForStep, countByTier, displayTitle, isRobberyStep, MODULES, PHASES, searchableText, suggestedModules, TIERS } from './lib/investigation'
 import type { InvestigationRecord, InvestigationStep, ModuleId, Phase, StepArea, TaskProgress, Tier } from './types'
 
-import { CASE_ID, CASE_NAV, SYSTEM_NAV, useNavigation } from './lib/navigation'
+import { CASE_ID, PROCEDURE_CASE_ID, CASE_NAV, SYSTEM_NAV, useNavigation } from './lib/navigation'
 import type { CaseView } from './lib/navigation'
 import { useTheme } from './lib/theme'
+import InvestigationWorkflow from './InvestigationWorkflow'
+import type { WorkflowStatus } from './lib/workflow'
 type DetailTab = 'action' | 'legal' | 'sources'
 
 
@@ -21,15 +23,17 @@ function ProgressBar({ done, total }: { done: number; total: number }) {
   </div>
 }
 
-function StepCard({ step, progress, onProgress, editable = true, compact = false }: {
+function StepCard({ step, progress, onProgress, editable = true, compact = false, workflow }: {
   step: InvestigationStep
   progress?: TaskProgress
   onProgress: (step: InvestigationStep, next: TaskProgress) => void
   editable?: boolean
   compact?: boolean
+  workflow?: { number: string; status: WorkflowStatus; focused: boolean }
 }) {
   const [expanded, setExpanded] = useState(false)
   const [tab, setTab] = useState<DetailTab>('action')
+  useEffect(() => { if (workflow?.focused) setExpanded(true) }, [workflow?.focused])
   const done = !!progress?.done
   const tickIds = progress?.completedTickIds || []
   const update = (next: Partial<TaskProgress>) => onProgress(step, {
@@ -38,13 +42,13 @@ function StepCard({ step, progress, onProgress, editable = true, compact = false
   const toggleTick = (id: string) => update({ completedTickIds: tickIds.includes(id) ? tickIds.filter((tick) => tick !== id) : [...tickIds, id] })
   const area = areaForStep(step)
 
-  return <article className={`step-card ${done ? 'is-done' : ''} ${compact ? 'compact' : ''}`}>
+  return <article id={workflow ? `workflow-${step.id}` : undefined} tabIndex={workflow ? -1 : undefined} className={`step-card ${workflow ? `workflow-step state-${workflow.status}` : ''} ${done ? 'is-done' : ''} ${compact ? 'compact' : ''}`}>
     <div className="step-top">
       <input className="task-check" type="checkbox" aria-label={`Mark ${displayTitle(step)} complete`} checked={done} disabled={!editable} onChange={() => update({ done: !done })} />
       <div className="step-heading">
-        <div className="step-overline"><span className={`tier ${step.triage.toLowerCase()}`}>{TIERS.find((tier) => tier.id === step.triage)?.label}</span><span>{step.group}</span>{area === 'theft' && isRobberyStep(step) && <span className="robbery-tag">Robbery</span>}</div>
+        <div className="step-overline">{workflow && <><span className="workflow-step-number">{workflow.number}</span><span className={`workflow-state ${workflow.status}`}>{workflow.status === 'optional' ? 'Optional reading' : workflow.status === 'current' ? 'Current · recommended' : workflow.status === 'completed' ? 'Completed' : 'Pending'}</span></>}<span className={`tier ${step.triage.toLowerCase()}`}>{TIERS.find((tier) => tier.id === step.triage)?.label}</span>{!workflow && <span>{step.group}</span>}{area === 'theft' && isRobberyStep(step) && <span className="robbery-tag">Robbery</span>}</div>
         <h3>{displayTitle(step)}</h3>
-        <div className="step-meta">
+        <div className="step-meta">{workflow && <span>{PHASES.find(p => p.id === step.phase)?.label} · {step.sources?.length || 0} source {step.sources?.length === 1 ? 'citation' : 'citations'}</span>}
           {step.responsible && <span>Owner: {step.responsible}</span>}
           {step.deadline && <span>Due: {step.deadline}</span>}
           {!editable && <span>Available for review</span>}
@@ -109,6 +113,7 @@ export default function App() {
   const [loadError, setLoadError] = useState('')
   const [saveError, setSaveError] = useState('')
   const { route, go, back, backLabel, canGoBack } = useNavigation()
+  const caseId = route.scope === 'case' ? route.caseId || CASE_ID : CASE_ID
   const view = route.scope === 'case' ? route.view : null
   const systemView = route.scope === 'system' ? route.view : null
   const pageTitle = useRef<HTMLHeadingElement>(null)
@@ -126,7 +131,12 @@ export default function App() {
   const [reviewedWarnings, setReviewedWarnings] = useState<Set<number>>(new Set())
   const [busy, setBusy] = useState(false)
 
-  useEffect(() => { adapter.load(CASE_ID).then(setRecord).catch((error: Error) => setLoadError(error.message)) }, [])
+  useEffect(() => {
+    let cancelled = false
+    setRecord(null); setLoadError(''); setSaveError(''); setReviewedWarnings(new Set())
+    adapter.load(caseId).then(value => { if (!cancelled) setRecord(value) }).catch((error: Error) => { if (!cancelled) setLoadError(error.message) })
+    return () => { cancelled = true }
+  }, [caseId])
   useEffect(() => { pageTitle.current?.focus({ preventScroll: true }) }, [route, record !== null])
   const data = record?.case
   const modules = record?.confirmedModules || []
@@ -144,8 +154,8 @@ export default function App() {
     if (!record) return
     setBusy(true); setSaveError('')
     try {
-      const saved = await adapter.saveTask(CASE_ID, step.id, next)
-      setRecord((current) => current ? { ...current, progress: { ...current.progress, [step.id]: saved } } : current)
+      const saved = await adapter.saveTask(caseId, step.id, next)
+      setRecord((current) => current && current.case === record.case ? { ...current, progress: { ...current.progress, [step.id]: saved } } : current)
     } catch (error) { setSaveError((error as Error).message) } finally { setBusy(false) }
   }
 
@@ -154,12 +164,12 @@ export default function App() {
     const next = modules.includes(id) ? modules.filter((module) => module !== id) : [...modules, id]
     setBusy(true); setSaveError('')
     try {
-      const saved = await adapter.saveModules(CASE_ID, next, record.modulesVersion)
-      setRecord((current) => current ? { ...current, confirmedModules: saved.confirmedModules, modulesVersion: saved.version } : current)
+      const saved = await adapter.saveModules(caseId, next, record.modulesVersion)
+      setRecord((current) => current && current.case === record.case ? { ...current, confirmedModules: saved.confirmedModules, modulesVersion: saved.version } : current)
     } catch (error) { setSaveError((error as Error).message) } finally { setBusy(false) }
   }
 
-  const navigate = (next: CaseView) => go({ scope: 'case', view: next })
+  const navigate = (next: CaseView) => go({ scope: 'case', view: next, caseId })
 
   if (loadError) return <div className="boot-state"><div className="boot-card"><h1>Case unavailable</h1><p>{loadError}</p><button type="button" onClick={() => window.location.reload()}>Try again</button></div></div>
   if (!data) return <div className="boot-state"><div className="boot-card"><div className="loading-dot" /><p>Opening investigation workspace…</p></div></div>
@@ -171,10 +181,11 @@ export default function App() {
   const systemTitles = { dashboard: 'Dashboard', cases: 'Cases', 'work-queue': 'Work Queue', search: 'Search', reports: 'Reports' }
   const title = view ? caseTitles[view] : systemTitles[systemView!]
   const subtitle = view
-    ? { overview: 'The case context and next actions in one place.', queue: 'Work through this case’s steps by time and priority.', special: 'Review additional procedures before adding them to this case.', library: 'Search every imported step and its source material.', fir: 'Read the full structured record and original FIR text.' }[view]
+    ? { overview: 'The case context and next actions in one place.', queue: 'Follow the general workflow and review procedures specific to this crime.', special: 'Review additional procedures before adding them to this case.', library: 'Search every imported step and its source material.', fir: 'Read the full structured record and original FIR text.' }[view]
     : { dashboard: 'Your cases and investigation work at a glance.', cases: 'Select a case to enter its investigation workspace.', 'work-queue': 'Investigation work across the available cases.', search: 'Find a case or a procedure in the available records.', reports: 'Progress and record quality across the available cases.' }[systemView!]
   const searchTerm = (systemView === 'cases' ? caseQuery : systemQuery).toLocaleLowerCase().trim()
   const caseMatches = !searchTerm || [data.fir.fir_number, data.fir.police_station, ...data.fir.sections_stated, data.fir_text].join(' ').toLocaleLowerCase().includes(searchTerm)
+  const procedureCaseMatches = isDemoMode && (!caseQuery.trim() || ['11192050250093/2025', 'Sanand Police Station', 'sexual offences', 'POCSO'].join(' ').toLowerCase().includes(caseQuery.trim().toLowerCase()))
   const searchSteps = searchTerm ? data.steps.filter((step) => searchableText(step).includes(searchTerm)) : []
   const doneSteps = caseSteps.filter((step) => progress[step.id]?.done).length
   const openNow = caseSteps.filter((step) => step.phase === 'now' && step.triage === 'MUST_DO' && !progress[step.id]?.done).length
@@ -192,24 +203,26 @@ export default function App() {
     </header>
 
     <div className="main-shell"><main className="page">
-      <div className="navigation-bar">{(view || canGoBack) && <button type="button" className="back-button" onClick={back}><span aria-hidden="true">←</span> Back to {backLabel}</button>}{view && <nav className="breadcrumbs" aria-label="Breadcrumb"><button type="button" onClick={() => go({ scope: 'system', view: 'cases' })}>Cases</button><span aria-hidden="true">/</span><button type="button" onClick={() => navigate('overview')}>FIR {data.fir.fir_number}</button><span aria-hidden="true">/</span><span aria-current="page">{CASE_NAV.find((item) => item.id === view)?.label}</span></nav>}</div>
-      {view && <div className="case-workspace"><section className="case-header"><div className="case-main"><span className="section-label">CURRENT CASE</span><div className="case-title-line"><h2>FIR {data.fir.fir_number}</h2><div className="section-chips">{data.fir.sections_stated.map((section) => <span key={section}>{section}</span>)}</div></div><p>{data.fir.police_station} · {firField('District')} · Registered {firField('Date & time FIR registered')}</p></div><div className="case-actions"><button type="button" className="outline-button" onClick={() => go({ scope: 'system', view: 'cases' })}>← Back to cases</button></div></section><nav className="case-nav" aria-label="Case navigation">{CASE_NAV.map((item) => <button type="button" key={item.id} aria-label={item.label} className={view === item.id ? 'selected' : ''} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}{item.id === 'special' && modules.length > 0 && <span>{modules.length}</span>}</button>)}</nav></div>}
+      <div className="navigation-bar">{(view || canGoBack) && <button type="button" className="back-button" onClick={back}><span aria-hidden="true">←</span> Back to {backLabel}</button>}{view && <nav className="breadcrumbs" aria-label="Breadcrumb"><button type="button" onClick={() => go({ scope: 'system', view: 'cases' })}>Cases</button><span aria-hidden="true">/</span><button type="button" onClick={() => navigate(data.procedure_only ? 'queue' : 'overview')}>FIR {data.fir.fir_number}</button><span aria-hidden="true">/</span><span aria-current="page">{CASE_NAV.find((item) => item.id === view)?.label}</span></nav>}</div>
+      {view && <div className="case-workspace"><section className="case-header"><div className="case-main"><span className="section-label">CURRENT CASE</span><div className="case-title-line"><h2>FIR {data.fir.fir_number}</h2><div className="section-chips">{data.fir.sections_stated.map((section) => <span key={section}>{section}</span>)}</div></div><p>{data.fir.police_station}{!data.procedure_only && <> · {firField('District')} · Registered {firField('Date & time FIR registered')}</>}{data.procedure_only && ' · Investigation procedure preview'}</p></div><div className="case-actions"><button type="button" className="outline-button" onClick={() => go({ scope: 'system', view: 'cases' })}>← Back to cases</button></div></section><nav className="case-nav" aria-label="Case navigation">{CASE_NAV.filter(item => !data.procedure_only || ['queue', 'library'].includes(item.id)).map((item) => <button type="button" key={item.id} aria-label={item.label} className={view === item.id ? 'selected' : ''} aria-current={view === item.id ? 'page' : undefined} onClick={() => navigate(item.id)}>{item.label}{item.id === 'special' && modules.length > 0 && <span>{modules.length}</span>}</button>)}</nav></div>}
       <div className="page-heading"><div>{view && <p className="eyebrow">CASE WORKSPACE</p>}<h1 ref={pageTitle} tabIndex={-1}>{title}</h1><p className="heading-subtitle">{subtitle}</p></div><div className="top-status"><span className="status-dot" />{isDemoMode ? 'Demo mode' : 'Connected'}</div></div>
-      {isDemoMode && <div className="demo-banner"><div><strong>Demo workspace</strong><span> · Changes reset on refresh.</span></div><details><summary>About this demo</summary><p>The available case is shown exactly as imported from the linked page. Task changes and procedure selections remain in this browser session and reset on refresh. Use the cited sources and paper FIR for verification.</p></details></div>}
+      {isDemoMode && <div className="demo-banner"><div><strong>Demo workspace</strong><span> · Changes reset on refresh.</span></div><details><summary>About this demo</summary><p>{data.procedure_only ? 'The linked case’s procedural steps are preserved; personal case details are withheld in this preview.' : 'The original case is shown exactly as imported from the linked page.'} Task changes and procedure selections remain in this browser session and reset on refresh. Use the cited sources and paper FIR for verification.</p></details></div>}
       {saveError && <div className="error-banner" role="alert"><strong>Change was not saved.</strong> {saveError}<button type="button" onClick={() => setSaveError('')}>Dismiss</button></div>}
 
-      {!view && <p className="dataset-note">{isDemoMode ? 'Demo data: one imported case is available.' : 'One case is available through the current case adapter.'}</p>}
+      {!view && <p className="dataset-note">{isDemoMode ? 'Demo data: the original case and the linked investigation procedure preview are available.' : 'One case is available through the current case adapter.'}</p>}
 
       {systemView === 'dashboard' && <>
         <div className="system-metrics">
-          <button type="button" onClick={() => go({ scope: 'system', view: 'cases' })}><span>Available cases</span><strong>1</strong><small>Browse cases →</small></button>
+          <button type="button" onClick={() => go({ scope: 'system', view: 'cases' })}><span>Available cases</span><strong>{isDemoMode ? 2 : 1}</strong><small>Browse cases →</small></button>
           <button type="button" onClick={() => go({ scope: 'system', view: 'work-queue' })}><span>Required right now</span><strong>{openNow}</strong><small>Open Work Queue →</small></button>
           <button type="button" onClick={() => navigate('fir')}><span>Record issues to review</span><strong>{warnings.length - reviewedWarnings.size}</strong><small>Review case record →</small></button>
         </div>
         <section className="section-block"><div className="section-heading"><div><span className="section-label">AVAILABLE CASES</span><h2>Continue an investigation</h2></div><button type="button" className="text-button" onClick={() => go({ scope: 'system', view: 'cases' })}>View cases →</button></div><div className="case-list-card"><div><span className="section-label">FIR</span><h2>{data.fir.fir_number}</h2><p>{data.fir.police_station} · {data.fir.sections_stated.join(' · ')}</p><ProgressBar done={doneMustDo} total={mustDo.length} /></div><button type="button" className="primary-button" onClick={() => navigate('overview')}>Open case →</button></div></section>
       </>}
 
-      {systemView === 'cases' && <section className="section-block first-block"><div className="filter-bar"><div className="search-wrap"><span aria-hidden="true">⌕</span><input aria-label="Find a case" placeholder="Find by FIR, station, offence or record text…" value={caseQuery} onChange={(event) => setCaseQuery(event.target.value)} /></div><span className="result-count">{caseMatches ? 1 : 0} case found</span></div>{caseMatches ? <div className="case-list-card"><div><span className="section-label">FIR</span><h2>{data.fir.fir_number}</h2><p>{data.fir.police_station} · {firField('District')}</p><div className="section-chips">{data.fir.sections_stated.map((section) => <span key={section}>{section}</span>)}</div><p className="case-list-meta">{openNow} required right-now steps · {warnings.length - reviewedWarnings.size} record issues</p></div><button type="button" className="primary-button" onClick={() => navigate('overview')}>Open case →</button></div> : <div className="empty-state"><strong>No case matches your search.</strong><p>Try another FIR number, police station or offence.</p></div>}</section>}
+      {systemView === 'cases' && <section className="section-block first-block"><div className="filter-bar"><div className="search-wrap"><span aria-hidden="true">⌕</span><input aria-label="Find a case" placeholder="Find by FIR, station, offence or record text…" value={caseQuery} onChange={(event) => setCaseQuery(event.target.value)} /></div><span className="result-count">{(caseMatches ? 1 : 0) + (procedureCaseMatches ? 1 : 0)} {(caseMatches ? 1 : 0) + (procedureCaseMatches ? 1 : 0) === 1 ? 'case' : 'cases'} found</span></div>{caseMatches ? <div className="case-list-card"><div><span className="section-label">FIR</span><h2>{data.fir.fir_number}</h2><p>{data.fir.police_station} · {firField('District')}</p><div className="section-chips">{data.fir.sections_stated.map((section) => <span key={section}>{section}</span>)}</div><p className="case-list-meta">{openNow} required right-now steps · {warnings.length - reviewedWarnings.size} record issues</p></div><button type="button" className="primary-button" onClick={() => navigate('overview')}>Open case →</button></div> : procedureCaseMatches ? null : <div className="empty-state"><strong>No case matches your search.</strong><p>Try another FIR number, police station or offence.</p></div>}</section>}
+
+      {systemView === 'cases' && procedureCaseMatches && <div className="case-list-card procedure-preview-case"><div><span className="section-label">INVESTIGATION PROCEDURE PREVIEW</span><h2>11192050250093/2025</h2><p>Sanand Police Station · Sexual offences / POCSO</p><p className="case-list-meta">854 source-linked steps · General and crime-specific workflows</p></div><button type="button" className="primary-button" onClick={() => go({ scope: 'case', view: 'queue', caseId: PROCEDURE_CASE_ID })}>Open investigation →</button></div>}
 
       {systemView === 'work-queue' && <div className="queue-case-context"><div><span className="section-label">WORK FROM CASE</span><strong>FIR {data.fir.fir_number}</strong><span>{data.fir.police_station}</span></div><button type="button" className="outline-button" onClick={() => navigate('queue')}>Open case investigation →</button></div>}
 
@@ -225,7 +238,9 @@ export default function App() {
         <section className="section-block"><div className="section-heading"><div><span className="section-label">ADDITIONAL PROCEDURE</span><h2>Review for this case</h2></div><button type="button" className="text-button" onClick={() => navigate('special')}>Open special sections →</button></div><div className="module-grid">{MODULES.map((module) => <button type="button" className="module-tile" key={module.id} onClick={() => { setSelectedModule(module.id); navigate('special') }}><span className="module-icon">{module.id === 'heinous' ? 'H' : module.id === 'murder' ? 'M' : 'T'}</span><strong>{module.label}</strong><span>{modules.includes(module.id) ? 'Added to queue' : suggestions.includes(module.id) ? 'Suggested · review needed' : 'Available to review'}</span><span className="module-arrow">→</span></button>)}</div></section>
       </>}
 
-      {(view === 'queue' || systemView === 'work-queue') && <><section className="section-block first-block"><div className="section-heading"><div><span className="section-label">{view ? 'ACTIVE CASE' : 'AVAILABLE INVESTIGATION WORK'}</span><h2>Investigation queue</h2></div><span className="result-count">{caseSteps.length} active steps</span></div><div className="phase-tabs" role="tablist" aria-label="Investigation phase">{PHASES.map((item) => { const count = caseSteps.filter((step) => step.phase === item.id && step.triage === tier).length; return <button key={item.id} role="tab" type="button" aria-selected={phase === item.id} className={phase === item.id ? 'selected' : ''} onClick={() => setPhase(item.id)}><span>{item.label}</span><strong>{count}</strong></button> })}</div><div className="filter-bar"><div className="search-wrap"><span aria-hidden="true">⌕</span><input aria-label="Search active steps" placeholder="Search steps, source or owner…" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="tier-switch" role="group" aria-label="Priority">{TIERS.map((item) => <button key={item.id} type="button" className={tier === item.id ? 'selected' : ''} aria-pressed={tier === item.id} onClick={() => setTier(item.id)}>{item.label}</button>)}</div><label className="hide-toggle"><input type="checkbox" checked={hideDone} onChange={(event) => setHideDone(event.target.checked)} /> Hide done</label></div><div className="queue-summary"><div><strong>{currentPhase.label}</strong><span>{currentPhase.description}</span></div><span>{queueSteps.length} {tier.toLowerCase().replace('_', ' ')} steps shown</span></div><StepResults steps={queueSteps} progress={progress} onProgress={saveProgress} editable={() => !busy} group /></section></>}
+      {view === 'queue' && <InvestigationWorkflow key={caseId} data={data} modules={modules} progress={progress} busy={busy} onModule={toggleModule} renderStep={(step, number, status, editable, focused) => <StepCard key={step.id} step={step} progress={progress[step.id]} onProgress={saveProgress} editable={editable} workflow={{ number, status, focused }} />} />}
+
+      {systemView === 'work-queue' && <><section className="section-block first-block"><div className="section-heading"><div><span className="section-label">{view ? 'ACTIVE CASE' : 'AVAILABLE INVESTIGATION WORK'}</span><h2>Investigation queue</h2></div><span className="result-count">{caseSteps.length} active steps</span></div><div className="phase-tabs" role="tablist" aria-label="Investigation phase">{PHASES.map((item) => { const count = caseSteps.filter((step) => step.phase === item.id && step.triage === tier).length; return <button key={item.id} role="tab" type="button" aria-selected={phase === item.id} className={phase === item.id ? 'selected' : ''} onClick={() => setPhase(item.id)}><span>{item.label}</span><strong>{count}</strong></button> })}</div><div className="filter-bar"><div className="search-wrap"><span aria-hidden="true">⌕</span><input aria-label="Search active steps" placeholder="Search steps, source or owner…" value={query} onChange={(event) => setQuery(event.target.value)} /></div><div className="tier-switch" role="group" aria-label="Priority">{TIERS.map((item) => <button key={item.id} type="button" className={tier === item.id ? 'selected' : ''} aria-pressed={tier === item.id} onClick={() => setTier(item.id)}>{item.label}</button>)}</div><label className="hide-toggle"><input type="checkbox" checked={hideDone} onChange={(event) => setHideDone(event.target.checked)} /> Hide done</label></div><div className="queue-summary"><div><strong>{currentPhase.label}</strong><span>{currentPhase.description}</span></div><span>{queueSteps.length} {tier.toLowerCase().replace('_', ' ')} steps shown</span></div><StepResults steps={queueSteps} progress={progress} onProgress={saveProgress} editable={() => !busy} group /></section></>}
 
       {view === 'special' && <><section className="section-block first-block"><div className="section-heading"><div><span className="section-label">CRIME-SPECIFIC WORK</span><h2>Additional steps, kept separate</h2></div></div><p className="section-intro">The shared queue covers general investigation work. Review each extra section below and add it to this case only when it applies. The source case suggests sections from its stated offences; confirmation remains with the investigator.</p><div className="special-tabs" role="tablist" aria-label="Special procedure">{MODULES.map((module) => <button key={module.id} type="button" role="tab" aria-selected={selectedModule === module.id} className={selectedModule === module.id ? 'selected' : ''} onClick={() => setSelectedModule(module.id)}><span>{module.label}</span>{modules.includes(module.id) && <span className="selected-dot" />}</button>)}</div><div className="module-detail"><div className="module-detail-top"><div><span className="section-label">{modules.includes(selectedModule) ? 'CONFIRMED FOR CASE' : suggestions.includes(selectedModule) ? 'SUGGESTED FROM FIR · NEEDS CONFIRMATION' : 'AVAILABLE TO REVIEW'}</span><h2>{MODULES.find((module) => module.id === selectedModule)?.label}</h2><p>{MODULES.find((module) => module.id === selectedModule)?.description}</p></div><button type="button" className={modules.includes(selectedModule) ? 'outline-button' : 'primary-button'} disabled={busy} onClick={() => toggleModule(selectedModule)}>{modules.includes(selectedModule) ? 'Remove from queue' : 'Add to this case'}</button></div>{selectedModule === 'heinous' && <div className="linked-note"><strong>Linked shared step:</strong> The imported “Draw and Annotate the Crime Scene Sketch” step includes a to-scale instruction for heinous crimes. It remains in the shared queue so its ordinary scene-sketch work is not duplicated.</div>}{selectedModule === 'theft' && <div className="linked-note"><strong>Robbery in this FIR:</strong> Robbery-specific steps are marked “Robbery” within this section. Confirm each step’s applicability to the case before acting.</div>}<div className="module-count"><strong>{specialSteps.length} source-linked additional steps</strong><span>{modules.includes(selectedModule) ? 'Included in the active queue' : 'Preview only until confirmed'}</span></div><StepResults steps={specialSteps} progress={progress} onProgress={saveProgress} editable={() => modules.includes(selectedModule) && !busy} limit={25} /></div></section></>}
 

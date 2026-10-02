@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react'
 
 export type CaseView = 'overview' | 'queue' | 'special' | 'library' | 'fir'
 export type SystemView = 'dashboard' | 'cases' | 'work-queue' | 'search' | 'reports'
-export type Route = { scope: 'system'; view: SystemView } | { scope: 'case'; view: CaseView }
+export type Route = { scope: 'system'; view: SystemView } | { scope: 'case'; view: CaseView; caseId?: string }
 
 export const CASE_ID = '11192011260307-2026'
+export const PROCEDURE_CASE_ID = '11192050250093-2025'
 export const SYSTEM_NAV: { id: SystemView; label: string; icon: string }[] = [
   { id: 'dashboard', label: 'Dashboard', icon: '▦' },
   { id: 'cases', label: 'Cases', icon: '▣' },
@@ -21,13 +22,13 @@ export const CASE_NAV: { id: CaseView; label: string }[] = [
 ]
 
 function routePath(route: Route) {
-  return route.scope === 'case' ? `#/cases/${CASE_ID}/${route.view}` : `#/${route.view}`
+  return route.scope === 'case' ? `#/cases/${route.caseId || CASE_ID}/${route.view}` : `#/${route.view}`
 }
 
 function readRoute(): Route {
   const path = window.location.hash.slice(2).split('/')
-  if (path[0] === 'cases' && path[1] === CASE_ID && CASE_NAV.some((item) => item.id === path[2])) {
-    return { scope: 'case', view: path[2] as CaseView }
+  if (path[0] === 'cases' && [CASE_ID, PROCEDURE_CASE_ID].includes(path[1]) && CASE_NAV.some((item) => item.id === path[2])) {
+    return { scope: 'case', view: path[1] === PROCEDURE_CASE_ID && path[2] !== 'library' ? 'queue' : path[2] as CaseView, caseId: path[1] }
   }
   return { scope: 'system', view: SYSTEM_NAV.some((item) => item.id === path[0]) ? path[0] as SystemView : 'dashboard' }
 }
@@ -70,8 +71,8 @@ export function useNavigation() {
 
   const back = () => {
     if (state.depth > 0) window.history.back()
-    else go(route.scope === 'case' && route.view !== 'overview' ? { scope: 'case', view: 'overview' } : { scope: 'system', view: 'cases' })
+    else go(route.scope === 'case' && route.view !== 'overview' && route.caseId !== PROCEDURE_CASE_ID ? { scope: 'case', view: 'overview', caseId: route.caseId } : { scope: 'system', view: 'cases' })
   }
 
-  return { route, go, back, backLabel: state.previousLabel || (route.scope === 'case' && route.view !== 'overview' ? 'case overview' : 'cases'), canGoBack: state.depth > 0 }
+  return { route, go, back, backLabel: state.previousLabel || (route.scope === 'case' && route.view !== 'overview' && route.caseId !== PROCEDURE_CASE_ID ? 'case overview' : 'cases'), canGoBack: state.depth > 0 }
 }

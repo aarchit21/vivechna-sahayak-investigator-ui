@@ -4,7 +4,7 @@ This is a **proposed contract** for the future case service. No backend source, 
 
 ## 1. Switch the frontend to API mode
 
-The UI calls the `InvestigationAdapter` in `src/lib/backend.ts`. In demo mode it loads `src/data/case.json`; in API mode it calls the endpoints below. Add a local `.env.local` file:
+The UI calls the `InvestigationAdapter` in `src/lib/backend.ts`. In demo mode it loads `src/data/case.json` or the procedural-only `src/data/sanand-procedures.json` for the selected case; in API mode it calls the endpoints below. Add a local `.env.local` file:
 
 ```dotenv
 VITE_DATA_MODE=api
@@ -13,7 +13,7 @@ API_PROXY_TARGET=http://localhost:8080
 
 Then run `pnpm dev`. Vite proxies `/api` to `API_PROXY_TARGET` during development. In deployment, serve the frontend and `/api` under the same HTTPS origin through the application gateway. Keep `VITE_DATA_MODE` unset for the demo. Never place credentials or secret keys in a `VITE_` variable; Vite exposes those values to the browser.
 
-The frontend requests the case ID `11192011260307-2026`. Change the route/case selector before using multiple cases. All endpoint IDs are URL encoded by the adapter.
+The frontend passes the selected route case ID: `11192011260307-2026` or `11192050250093-2025`. The demo case selector is a local catalogue; a production case list requires an authorized backend list endpoint. All endpoint IDs are URL encoded by the adapter.
 
 ## 2. Proposed endpoints
 
@@ -80,7 +80,7 @@ Response:
 { "confirmedModules": ["heinous", "murder", "theft"], "version": 4 }
 ```
 
-Accepted module IDs are `heinous`, `murder`, and `theft`. Replace the set atomically after checking the submitted `version`; return **409 Conflict** for a stale version. Module confirmation changes which additional steps enter the active queue. It must not delete any saved task progress.
+Accepted module IDs are `heinous`, `murder`, `theft`, `sexual`, `children`, `trafficking`, and `cyber`. Replace the set atomically after checking the submitted `version`; return **409 Conflict** for a stale version. Module confirmation changes which additional steps enter the active queue. It must not delete any saved task progress.
 
 ### `PATCH /api/cases/{caseId}/tasks/{stepId}`
 
@@ -118,3 +118,11 @@ The UI applies changes only after the adapter reports success. The backend shoul
 5. Exercise `401/403`, `404`, `409`, network outage, and unavailable source-document responses before rollout.
 
 The exact record in `src/data/case.json` contains personal information. The current repository and GitHub Pages demo intentionally publish this record. This deployment has no investigator authentication and does not save progress; do not use it as an operational case system. A future backend deployment should restrict access to its API, logs, and backups, and should review whether the public static fixture remains appropriate.
+
+## Workflow presentation
+
+`src/InvestigationWorkflow.tsx` renders the selected record; `src/lib/workflow.ts` derives order, progress and the next recommendation. Progress counts must-do and should-do actions from shared procedure and confirmed modules, excluding reference reading. Reference completion may still be stored, but must not inflate action progress. Never infer completion from FIR registration. Store progress and module versions by both case ID and step ID.
+
+The Sanand fixture contains 854 steps: 335 `MUST_DO`, 276 `SHOULD_DO`, 243 `REFERENCE`, with 1,991 source references. It preserves a source catalogue inconsistency: some references use `BSA.pdf` as the document identifier instead of `bsa_2023`; resolve that filename to the corresponding catalogue entry without changing stable step IDs or citations.
+
+`procedure_only: true` denotes the sanitized demo preview: only Investigation and All steps are available. The production backend should authorize personal case content independently and supply the full record only to permitted officers. Additional modules are suggestions until confirmed, including routing-derived trafficking and cyber suggestions. Review mappings in `src/lib/investigation.ts` before operational use.

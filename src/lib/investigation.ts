@@ -17,6 +17,10 @@ export const MODULES: { id: ModuleId; label: string; description: string; short:
   { id: 'heinous', label: 'Heinous Crime', short: 'Heinous', description: 'Extra supervision and case handling for serious offences.' },
   { id: 'murder', label: 'Murder', short: 'Murder', description: 'Death investigation, inquest and related evidence steps.' },
   { id: 'theft', label: 'Theft', short: 'Theft', description: 'Property crime steps, including clearly marked robbery work.' },
+  { id: 'sexual', label: 'Sexual offences / POCSO', short: 'Sexual offences', description: 'Source-linked medical, forensic, statement and victim protection procedures.' },
+  { id: 'children', label: 'Children / Abduction', short: 'Children', description: 'Additional procedures for cases involving children, kidnapping or abduction.' },
+  { id: 'trafficking', label: 'Human trafficking', short: 'Trafficking', description: 'Material suggested by source routing; review applicability before confirming.' },
+  { id: 'cyber', label: 'Cyber / Digital offences', short: 'Cyber', description: 'Crime-specific electronic investigation material suggested by source routing.' },
 ]
 
 // Curated IDs are the only serious-crime additions in the imported case that
@@ -29,8 +33,23 @@ const HEINOUS_IDS = new Set([
 ])
 
 const THEFT_REFERENCE_IDS = new Set(['bsa-56-evidence', 'bsa-119-evidence'])
+const SEXUAL_SHARED_IDS = new Set([
+  'core-registration-rape-victim-statement-place',
+  'core-evidence-collection-semen-evidence',
+  'core-evidence-collection-sexual-offence-scene-evidence',
+  'core-arrest-custody-rape-accused-medical-examination',
+  'core-witnesses-statements-woman-officer-records-victim-statement',
+  'core-documentation-supervision-rape-victim-medical-24h',
+  'core-documentation-supervision-sexual-offence-2-months',
+  'core-chargesheet-closure-two-month-sexual-offence-deadline',
+])
 
 export function areaForStep(step: InvestigationStep): StepArea {
+  if (SEXUAL_SHARED_IDS.has(step.id)) return 'sexual'
+  if (step.id.startsWith('module-sexual-offences-') || (step.group === 'Forensic examination by crime type' && /POCSO|sexual abuse|rape victim|child victim|sexual offence/i.test([step.title, step.text].join(' ')))) return 'sexual'
+  if (step.id.startsWith('module-kidnapping-children-')) return 'children'
+  if (step.id.startsWith('module-trafficking-')) return 'trafficking'
+  if (step.id.startsWith('module-cyber-economic-')) return 'cyber'
   if (HEINOUS_IDS.has(step.id)) return 'heinous'
   if (step.id.startsWith('module-deaths-') || step.group === 'The body: inquest and post-mortem') return 'murder'
   if (step.id.startsWith('module-property-') || step.id.includes('forensic-theft-burglary') || THEFT_REFERENCE_IDS.has(step.id)) return 'theft'
@@ -47,6 +66,10 @@ export function suggestedModules(data: CasePayload): ModuleId[] {
     suggested.add('heinous')
   }
   if (/BNS\s*309\s*\(/.test(sections) || /theft|robbery|dacoity/.test(route)) suggested.add('theft')
+  if (/POCSO|BNS\s*6[4-9]\b/.test(sections) || /rape|sexual offences/.test(route)) suggested.add('sexual')
+  if (/POCSO|BNS\s*87\b/.test(sections) || /children|kidnapping|abduction/.test(route)) suggested.add('children')
+  if (/trafficking/.test(route)) suggested.add('trafficking')
+  if (/cybercrime/.test(route)) suggested.add('cyber')
   return MODULES.map((module) => module.id).filter((id) => suggested.has(id))
 }
 

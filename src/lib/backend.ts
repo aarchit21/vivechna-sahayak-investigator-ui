@@ -1,4 +1,3 @@
-import importedCase from '../data/case.json'
 import type { CasePayload, InvestigationRecord, ModuleId, TaskProgress } from '../types'
 
 export interface InvestigationAdapter {
@@ -12,15 +11,28 @@ export class ApiError extends Error {
 }
 
 export function createDemoAdapter(): InvestigationAdapter {
+  const records = new Map<string, InvestigationRecord>()
   return {
-    async load() {
-      return { case: importedCase as unknown as CasePayload, confirmedModules: [], modulesVersion: 0, progress: {} }
+    async load(caseId) {
+      if (!records.has(caseId)) {
+        const payload = caseId === '11192050250093-2025'
+          ? await import('../data/sanand-procedures.json')
+          : await import('../data/case.json')
+        records.set(caseId, { case: payload.default as unknown as CasePayload, confirmedModules: [], modulesVersion: 0, progress: {} })
+      }
+      return records.get(caseId)!
     },
-    async saveModules(_caseId, confirmedModules, version) {
-      return { confirmedModules, version: version + 1 }
+    async saveModules(caseId, confirmedModules, version) {
+      const saved = { confirmedModules, version: version + 1 }
+      const record = records.get(caseId)
+      if (record) records.set(caseId, { ...record, confirmedModules, modulesVersion: saved.version })
+      return saved
     },
-    async saveTask(_caseId, _stepId, progress) {
-      return { ...progress, version: progress.version + 1 }
+    async saveTask(caseId, stepId, progress) {
+      const saved = { ...progress, version: progress.version + 1 }
+      const record = records.get(caseId)
+      if (record) records.set(caseId, { ...record, progress: { ...record.progress, [stepId]: saved } })
+      return saved
     },
   }
 }

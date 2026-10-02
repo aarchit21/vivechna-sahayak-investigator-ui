@@ -1,6 +1,6 @@
 export type Phase = 'now' | '24h' | 'week' | 'later'
 export type Tier = 'MUST_DO' | 'SHOULD_DO' | 'REFERENCE'
-export type ModuleId = 'heinous' | 'murder' | 'theft'
+export type ModuleId = 'heinous' | 'murder' | 'theft' | 'sexual' | 'children' | 'trafficking' | 'cyber'
 export type StepArea = 'core' | ModuleId | 'library'
 
 export interface FirField {
@@ -71,6 +71,7 @@ export interface SourceDocument {
 }
 
 export interface CasePayload {
+  procedure_only?: boolean
   fir: FirRecord
   fir_text: string
   steps: InvestigationStep[]
